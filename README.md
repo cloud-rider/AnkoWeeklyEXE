@@ -1,2 +1,15 @@
 安科周报编写工具
-基于ChangingSelf 憧憬少的原版（https://github.com/ChangingSelf/anko-thread-weekly）基础上修改并打包，以便对Python环境和代码不熟悉的同好使用。
+原版 by ChangingSelf 憧憬少：https://github.com/ChangingSelf/anko-thread-weekly
+在原版基础上进行了便利化修改：
+- 自动检查并生成所需要的文件夹
+- 自动检测本周和上周的数据文件
+- 运行时提示当前进度
+- 周报内容保存文本版本
+
+同时将运行环境打包为exe文件，方便对Python不熟悉的朋友下载使用。
+
+使用方法（EXE版）：
+- 下载EXE版到本地并解压
+- 在解压后的raw_data文件夹中，已经保留了两个文件供测试用。可以进一步获取新的数据文件，并以同样的格式命名后加入raw_data文件夹中
+- 程序会从raw_data的文件夹中根据文件名获得时间最近的两个文件作为“本周”和“上周”的数据文件读取并处理。
+- 处理完成后的周报内容和里程碑内容将保存在以paper_weekly和paper_milestone开头，包含“本周”时间的文本文件中，其中的代码可以直接在论坛发布。
