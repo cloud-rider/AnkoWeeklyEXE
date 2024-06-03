@@ -411,7 +411,7 @@ output += f"""[align=center][size=150%][b]本周达到里程碑的安科[/b][/si
 pyperclip.copy(output)
 # print(output)
 
-paper_file = open(f'paper_weekly-{datetime_last.strftime(file_time_format)}.txt', "w")
+paper_file = open(f'paper_weekly-{datetime_last.strftime(file_time_format)}.txt', "w", encoding="utf-8")
 paper_file.write(output)
 paper_file.close()
 
@@ -483,7 +483,7 @@ output += f"""
 
 # print(output)
 # pyperclip.copy(output)
-paper_file = open(f'paper_milestone-{datetime_last.strftime(file_time_format)}.txt', "w")
+paper_file = open(f'paper_milestone-{datetime_last.strftime(file_time_format)}.txt', "w", encoding="utf-8")
 paper_file.write(output)
 paper_file.close()
 
@@ -495,3 +495,4 @@ with pd.ExcelWriter(f'now5000.xlsx', engine='openpyxl') as writer:
     to_excel_auto_column_weight(now5000, writer, f'data')
 
 print("本期周报已经处理完毕。周报内容保存于paper_weekly文件中，里程碑内容保存于paper_milestone文件中。")
+input("请按任意键结束程序。")
