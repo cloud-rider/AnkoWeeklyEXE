@@ -284,44 +284,89 @@ def set_milestones(milestone_list: list):
 # Script
 os.makedirs("raw_data", exist_ok=True)
 os.makedirs("data", exist_ok=True)
-# 读取rawdata文件夹下的文档，选出其中最近和次近的两个作为this和last
+os.makedirs("temp", exist_ok=True)
+# 首先遍历rawdata文件夹下的文件，并确认data文件夹下是否存在对应的处理后文件。如果没有，进行处理。
+print("步骤一：读入原始数据文件，并进行预处理（可能耗时较长，请耐心等待）")
+rawdata_filenames = os.listdir("raw_data")
+process_data_filenames = [re.sub("nga-thread", "data",x) for x in rawdata_filenames]
+
+for i in range(len(process_data_filenames)):
+    print("(" + str(i + 1) + r"/" + str(len(process_data_filenames)) + ")"+rawdata_filenames[i])
+    if(os.path.isfile(r'data/'+process_data_filenames[i])):
+        print("文件已处理")
+    else:
+        print("文件未处理，将自动进行处理，请稍候……")
+        data_process = load_data(r'raw_data/'+rawdata_filenames[i])
+        with pd.ExcelWriter(r'data/'+process_data_filenames[i], engine='openpyxl') as writer:
+            to_excel_auto_column_weight(data_process, writer, f'data')
+        print("文件已处理")
+
+# 读取data文件夹下的文档，选出其中最近和次近的两个作为this和last
 file_time_format = "%Y-%m-%d-%H%M"  # 本地文件名的时间格式，目前是nga-thread-2023-02-05-1208.xlsx这种格式
 
-rawdata_filenames = os.listdir("raw_data")
-rawdata_filenames = [re.sub("[^0-9\-]", "",x) for x in rawdata_filenames]
-rawdata_filenames = [x.split("-")[2:] for x in rawdata_filenames]
+data_filenames = os.listdir("data")
+data_filenames = [ x for x in data_filenames if "~$" not in x ]
+data_filenames = [re.sub("[^0-9\-]", "",x) for x in data_filenames]
+data_filenames = [x.split("-")[1:] for x in data_filenames]
 
-if len(rawdata_filenames) < 2:
+if len(data_filenames) < 2:
     print("采集数据文件数量不足，请检查raw_data文件夹下是否有至少两个采集数据文件")
 
-rawdata_filetime = []
-for x in rawdata_filenames:
-    rawdata_filetime.append(datetime(int(x[0]), int(x[1]), int(x[2]),int(x[3][0:2]), int(x[3][2:4])))
+data_filetime = []
+for x in data_filenames:
+    data_filetime.append(datetime(int(x[0]), int(x[1]), int(x[2]),int(x[3][0:2]), int(x[3][2:4])))
 
-rawdata_filetime.sort(reverse = True)
+data_filetime.sort(reverse = True)
 
 try:
-    datetime_last = rawdata_filetime[1]  # 上周采集数据的时间
-    datetime_this = rawdata_filetime[0] # 本周采集数据的时间
-    print("经过程序检测，raw_data文件夹下最后的两个数据收集时间分别为 %s 和 %s, 将分别其作为上周和本周的数据采集时间。如果有误，请重新检查raw_data文件夹中的文件名"
+    datetime_last = data_filetime[1]  # 上周采集数据的时间
+    datetime_this = data_filetime[0] # 本周采集数据的时间
+    print("经过程序检测，data文件夹下最后的两个数据收集时间分别为 %s 和 %s, 将分别其作为上周和本周的数据采集时间。如果有误，请重新检查data文件夹中的文件名"
           % (datetime_last.strftime(file_time_format), datetime_this.strftime(file_time_format)))
 except:
-    print("程序无法自动检测上周和本周的数据采集时间。请重新检查raw_data文件夹中的文件名，确保其为nga-thread-YYYY-mm-dd-HHMM.xlsx的格式")
+    print("程序无法自动检测上周和本周的数据采集时间。")
+    print("如果您使用的是原始数据，请检查raw_data文件夹中的文件名，确保其为nga-thread-YYYY-mm-dd-HHMM.xlsx的格式。")
+    print("如果您使用的是处理后数据，请检查data文件夹中的文件名，确保其为data-YYYY-mm-dd-HHMM.xlsx的格式。")
     exit()
 
-print("步骤一：读入数据文件（可能耗时较长，请耐心等待）")
-data_last = load_data(f'raw_data/nga-thread-{datetime_last.strftime(file_time_format)}.xlsx')
-data_this = load_data(f'raw_data/nga-thread-{datetime_this.strftime(file_time_format)}.xlsx')
 
-print("步骤二：数据文件预处理")
-with pd.ExcelWriter(f'data/data-{datetime_last.strftime(file_time_format)}.xlsx', engine='openpyxl') as writer:
-    to_excel_auto_column_weight(data_last, writer, f'data')
 
-with pd.ExcelWriter(f'data/data-{datetime_this.strftime(file_time_format)}.xlsx', engine='openpyxl') as writer:
-    to_excel_auto_column_weight(data_this, writer, f'data')
+print("步骤二：读入处理后数据")
 
+data_last = pd.read_excel(io=f'data/data-{datetime_last.strftime(file_time_format)}.xlsx')
+data_this = pd.read_excel(io=f'data/data-{datetime_this.strftime(file_time_format)}.xlsx')
 data_last = filter_anko_threads(data_last)
 data_this = filter_anko_threads(data_this)
+
+# 数据检查：
+# 如果帖子出现在上周但是没有出现在本周（可能是由于采样数量的问题或者帖子被锁隐的问题），剔除
+# 如果帖子出现在本周但是没有出现在上周，且其发布时间早于上周的数据收集时间（也即本应出现在上周），剔除
+tid_last = data_last['tid']
+tid_this = data_this['tid']
+
+len_last_before = len(data_last)
+len_this_before = len(data_this)
+
+data_last = data_last.drop(data_last[~data_last['tid'].isin(tid_this)].index)
+data_this = data_this.drop(data_this[(~data_this['tid'].isin(tid_last)) & (data_this['publish_time'] < datetime_last)].index)
+
+len_last_after = len(data_last)
+len_this_after = len(data_this)
+
+# 按照tid进行排列
+data_last = data_last.sort_values(by=['tid'])
+data_this = data_this.sort_values(by=['tid'])
+
+print("经过数据检查，从上周数据中删除 %s 条，从本周数据中删除 %s 条。" %
+      (str(len_last_before - len_last_after), str(len_this_before - len_this_after)))
+
+'''
+with pd.ExcelWriter(r'temp/data_this.xlsx', engine='openpyxl') as writer:
+    to_excel_auto_column_weight(data_this, writer, f'data')
+
+with pd.ExcelWriter(r'temp/data_last.xlsx', engine='openpyxl') as writer:
+    to_excel_auto_column_weight(data_last, writer, f'data')
+'''
 
 print("步骤三：计算数据 - 新增安科")
 # 本周新增安科
@@ -335,7 +380,18 @@ print("步骤四：计算数据 - 完结安科")
 finished_threads = filter_finished_threads(data_last, data_this).sort_values(by='level', ascending=True)
 
 print("步骤五：计算数据 - 活跃安科")
-active_data = data_this['level'] - data_last['level']
+# 为了避免错误配对，改用join by tid来计算活跃安科
+data_last_tojoin = data_last[["tid", "level"]]
+data_this_tojoin = data_this[["tid", "level"]]
+data_this_tojoin = data_this_tojoin.join(data_last_tojoin.set_index('tid'), on = "tid", lsuffix='_this', rsuffix='_last')
+
+
+with pd.ExcelWriter(r'temp/data_join.xlsx', engine='openpyxl') as writer:
+    to_excel_auto_column_weight(data_this_tojoin, writer, f'data')
+
+active_data = data_this_tojoin['level_this'] - data_this_tojoin['level_last']
+
+# active_data.to_csv(r'temp/active.csv', index=True)
 
 active_data = active_data[active_data.notna() & active_data != 0.0]
 
@@ -411,7 +467,7 @@ output += f"""[align=center][size=150%][b]本周达到里程碑的安科[/b][/si
 pyperclip.copy(output)
 # print(output)
 
-paper_file = open(f'paper_weekly-{datetime_last.strftime(file_time_format)}.txt', "w", encoding="utf-8")
+paper_file = open(f'paper_weekly-{datetime_this.strftime(file_time_format)}.txt', "w", encoding="utf-8")
 paper_file.write(output)
 paper_file.close()
 
@@ -483,7 +539,7 @@ output += f"""
 
 # print(output)
 # pyperclip.copy(output)
-paper_file = open(f'paper_milestone-{datetime_last.strftime(file_time_format)}.txt', "w", encoding="utf-8")
+paper_file = open(f'paper_milestone-{datetime_this.strftime(file_time_format)}.txt', "w", encoding="utf-8")
 paper_file.write(output)
 paper_file.close()
 
