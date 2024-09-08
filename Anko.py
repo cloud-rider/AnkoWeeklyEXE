@@ -281,6 +281,13 @@ def set_milestones(milestone_list: list):
         output += set_milestone(x, next_x)
     return output
 
+def exportDic(dic, name):
+    dic_file = open("temp/"+name+".txt", "w")
+    for key in dic.keys():
+        line = key + "," + str(dic[key]['count']) + '\n'
+        dic_file.write(line)
+    dic_file.close()
+
 # Script
 os.makedirs("raw_data", exist_ok=True)
 os.makedirs("data", exist_ok=True)
@@ -385,15 +392,33 @@ data_last_tojoin = data_last[["tid", "level"]]
 data_this_tojoin = data_this[["tid", "level"]]
 data_this_tojoin = data_this_tojoin.join(data_last_tojoin.set_index('tid'), on = "tid", lsuffix='_this', rsuffix='_last')
 
-
-with pd.ExcelWriter(r'temp/data_join.xlsx', engine='openpyxl') as writer:
-    to_excel_auto_column_weight(data_this_tojoin, writer, f'data')
+#with pd.ExcelWriter(r'temp/data_join.xlsx', engine='openpyxl') as writer:
+#    to_excel_auto_column_weight(data_this_tojoin, writer, f'data')
 
 active_data = data_this_tojoin['level_this'] - data_this_tojoin['level_last']
 
-# active_data.to_csv(r'temp/active.csv', index=True)
+#active_data.to_csv(r'temp/active.csv', index=True)
 
 active_data = active_data[active_data.notna() & active_data != 0.0]
+
+# 准备生成Tag目录用
+# 为了统计Tag，提取本周中活跃+新增的安科
+data_this_tojoin_act_new = data_this_tojoin
+data_this_tojoin_act_new['level_dif'] = data_this_tojoin_act_new['level_this'] - data_this_tojoin_act_new['level_last']
+data_this_tojoin_act_new = data_this_tojoin_act_new.loc[data_this_tojoin_act_new['level_dif'] != 0]
+act_new_list = data_this_tojoin_act_new['tid']
+
+# 区分新增和活跃安科
+data_this_tojoin_new = data_this_tojoin_act_new.loc[data_this_tojoin_act_new['level_dif'].isna()]
+new_list = data_this_tojoin_new['tid']
+
+data_this_act_new = data_this
+data_this_act_new = data_this_act_new.loc[data_this_act_new['tid'].isin(act_new_list)]
+
+pd.set_option('mode.chained_assignment',  None)
+data_this_act_new['isNew'] = 0
+data_this_act_new.loc[data_this_act_new['tid'].isin(new_list), 'isNew'] = 1
+pd.set_option('mode.chained_assignment',  'warn')
 
 print("步骤六：输出结果")
 output = f"""[align=center][size=200%][b]周报基础内容[/b][/size][/align]
@@ -551,4 +576,99 @@ with pd.ExcelWriter(f'now5000.xlsx', engine='openpyxl') as writer:
     to_excel_auto_column_weight(now5000, writer, f'data')
 
 print("本期周报已经处理完毕。周报内容保存于paper_weekly文件中，里程碑内容保存于paper_milestone文件中。")
+
+print("额外内容：步骤七：标签目录生成")
+# data_this_act_new.to_csv(r'temp/data_this_act_new.csv', index=True, encoding="utf-8")
+
+tag_dic = {}
+# 循环新增+活跃安科，按照tag进行统计
+for index, row in data_this_act_new.iterrows():
+    if (pd.isna(row['area']) == False) and (re.findall('记忆回廊', row['area']) != []):
+        #print(row['title'])
+        continue
+    # 提取所有tag
+    tag = re.findall("\[(.*?)\]", row["title"])
+
+    if len(tag) != 0:
+        for item in tag:
+            if item not in tag_dic.keys():
+                tag_dic[item] = {'name': item, 'count': 0, 'thread': []}
+            tag_dic[item]['count'] += 1
+            tag_dic[item]['thread'].append({'title':row['title'], 'tid':row['tid'], 'level':row['level'], 'isNew':row['isNew']})
+
+# 输出原始Tag 列表
+# exportDic(tag_dic, "tag_raw")
+
+# 对tag进行处理（同义项、排除项）
+tag_file = open("tag.txt", "r", encoding="utf-8")
+tag_lines = tag_file.readlines()
+tag_file.close()
+
+tag_dic_refine = tag_dic
+for line in tag_lines:
+    tag_similar = re.sub("\n","",line).split(',')
+    if tag_similar[0] not in tag_dic_refine.keys():
+        tag_dic_refine[tag_similar[0]] = {'name': tag_similar[0],'count': 0, 'thread': []}
+    for tag in tag_similar[1:]:
+        if tag in tag_dic_refine.keys():
+            tag_dic_refine[tag_similar[0]]['count'] += tag_dic_refine[tag]['count']
+            tag_dic_refine[tag_similar[0]]['thread'] += tag_dic_refine[tag]['thread']
+            tag_dic_refine.pop(tag)
+
+# exportDic(tag_dic_refine, "tag_refine")
+tag_dic_refine.pop("待排除")
+# tag数量排序
+list_tag_dic = [value for value in tag_dic_refine.values()]
+list_tag_dic = sorted(list_tag_dic, key=lambda d: d['count'],reverse=True)
+exportDic(tag_dic_refine, "tag_refine")
+# 输出排版文本
+tag_output = ""
+tag_output += f"""[align=center][size=150%][b]安科标签目录[/b][/size][/align]
+[quote]为了方便读者寻找自己感兴趣的题材的安科，将本周活跃与新增的安科按照导游的标题中的标签（Tag)进行分类整理。标签按照使用了该标签的数量降序排序，每个标签内的安科按照楼层降序排序。
+[collapse=说明]
+1、本目录是完全按找导游自己在标题中的标签标注来整理生成的。我们尝试通过人工列表来整合一部分同类标签（例如BA,碧蓝档案,蔚蓝档案,蔚藍檔案,碧藍檔案）并排除不相关标签，但必然仍有遗漏还请谅解。
+2、这里的标签指的是在标题中使用[]框起的部分。如果您的安科更好地提升在潜在受众中的曝光率，可以考虑打上合适的标签。
+3、同理，我们倡议导游们在标题中仅使用[]进行标签标注，其他非标签内容使用其他种类的括号，这将对标签目录的生成提供巨大的便利，在此感谢导游们的理解和合作。
+4、为了避免目录太长影响读者观感，目前仅收录至少在三个帖子中被使用的标签。这个数量限制今后可能再根据情况调整。
+[/collapse][/quote]\n"""
+hot_tag_count = 0
+for item in list_tag_dic:
+    if item['count'] <= 2:
+        continue
+    '''
+    if hot_tag_count == 10:
+        tag_output += "[color=red][b]前十热门标签分界线[/b][/color]\n"
+    elif hot_tag_count == 30:
+        tag_output += "[color=orangered][b]前三十热门标签分界线[/b][/color]\n"
+    elif hot_tag_count == 50:
+        tag_output += "[color=green][b]前五十热门标签分界线[/b][/color]\n"
+    elif hot_tag_count == 100:
+        tag_output += "[color=blue][b]前百热门标签分界线[/b][/color]\n"
+    '''
+    # tag内按楼层排序
+    title = f"[collapse=含有“{item['name']}”标签的安科，共{item['count']}贴]"
+    tag_output +=title
+
+    tag_output += f"[list]\n"
+    thread_list = item['thread']
+    thread_list = sorted(thread_list, key=lambda d: d['level'],reverse=True)
+    item['thread'] = thread_list
+    for thread in item['thread']:
+        thread_info = f"[*]"
+        if thread["isNew"] == 1:
+            thread_info += "[color=green][b][新][/b][/color]"
+        title_notag = re.sub("\[(.*?)\]", "", thread['title'])
+        title_notag = re.sub(r"(\(.*?\)|（.*?）)", "", title_notag)
+        if title_notag == "":
+            title_notag = '[del]（此安科因标题全部由标签或者括号文本构成而被处理掉了）[/del]'
+        thread_info += f"[url=https://ngabbs.com/read.php?tid={thread['tid']}]{title_notag}[/url]（{thread['level']}楼）"
+        tag_output += thread_info
+    tag_output += "[/list]"
+    tag_output += "[/collapse]\n"
+    hot_tag_count += 1
+
+tag_file = open(f'tag_category-{datetime_this.strftime(file_time_format)}.txt', "w", encoding="utf-8")
+tag_file.write(tag_output)
+tag_file.close()
+print("标签目录已经处理完毕。内容保存于tag_category文件中。")
 input("请按任意键结束程序。")
