@@ -1,0 +1,3 @@
+min_thread_to_collapse,20
+min_days_as_inactive,3650
+min_thread_to_record_tag,3

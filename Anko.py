@@ -3,7 +3,7 @@
 # Edited by cloud_rider@NGA
 # 导入
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 from openpyxl.utils import get_column_letter
@@ -185,7 +185,7 @@ def data_to_bbcode(data: pd.DataFrame, col_name='level', show_reply_time=False, 
     if len(data) == 0: return "无"
 
     output = ""
-    FOLD_MAX = 5  # 超过多少个安科进行折叠
+    FOLD_MAX = current_config_dic["min_thread_to_collapse"]  # 超过多少个安科进行折叠
     BRIEF_NUM = 20  # 简介字数
 
     if is_fold and len(data) > FOLD_MAX: output += f"[collapse={len(data)}个安科]"
@@ -289,6 +289,39 @@ def exportDic(dic, name):
     dic_file.close()
 
 # Script
+# 读入配置文件
+# 默认设置
+current_config_dic = {}
+current_config_dic["min_thread_to_collapse"] = 5
+current_config_dic["min_days_as_inactive"] = 90
+current_config_dic["min_thread_to_record_tag"] = 3
+
+config_file = open("config.txt", "r")
+config_lines = config_file.readlines()
+config_file.close()
+
+try:
+    config_file = open("config.txt", "r")
+    config_lines = config_file.readlines()
+    config_file.close()
+
+    config_dic = {}
+    for line in config_lines:
+        config = re.sub("\n","",line)
+        config_item = config.split(",")
+        config_dic[config_item[0]] = int(config_item[1])
+    for key in current_config_dic.keys():
+        if key in config_dic.keys() and config_dic[key] > 0:
+            current_config_dic[key] = config_dic[key]
+    print("配置文件读取成功，将使用config.txt文件中给出的配置")
+except:
+    print("配置文件读取失败，请检查config.txt文件。现在使用默认配置")
+finally:
+    print("基础内容部分，当每个类别超过"+str(current_config_dic["min_thread_to_collapse"])+"个安科时，将进行自动折叠。")
+    print("防挖坟设定：如果某安科在本周出现但在上周未出现，只有当其发表于最近" + str(current_config_dic["min_days_as_inactive"])+"天之内才被视为活跃安科。")
+    print("标签目录部分，只有至少出现在" + str(current_config_dic["min_thread_to_record_tag"])+"个安科中的标签才会被纳入标签统计。")
+    print("===========================================================================")
+
 os.makedirs("raw_data", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 os.makedirs("temp", exist_ok=True)
@@ -345,9 +378,16 @@ data_this = pd.read_excel(io=f'data/data-{datetime_this.strftime(file_time_forma
 data_last = filter_anko_threads(data_last)
 data_this = filter_anko_threads(data_this)
 
-# 数据检查：
+# 保留一个data_this的原始结果，用于里程碑
+data_this_all = data_this
+
+# 统计活跃安科所用的数据检查：
 # 如果帖子出现在上周但是没有出现在本周（可能是由于采样数量的问题或者帖子被锁隐的问题），剔除
-# 如果帖子出现在本周但是没有出现在上周，且其发布时间早于上周的数据收集时间（也即本应出现在上周），剔除
+# 如果帖子出现在本周但是没有出现在上周，且其发布时间距离本周的数据收集时间已经超过了特定时间，剔除
+# 如果帖子出现在本周但是没有出现在上周，且其最后回复时间早于上周数据收集时间，说明本周并不活跃，剔除
+
+datetime_inactive = datetime_this - timedelta(days=current_config_dic["min_days_as_inactive"])
+
 tid_last = data_last['tid']
 tid_this = data_this['tid']
 
@@ -355,7 +395,8 @@ len_last_before = len(data_last)
 len_this_before = len(data_this)
 
 data_last = data_last.drop(data_last[~data_last['tid'].isin(tid_this)].index)
-data_this = data_this.drop(data_this[(~data_this['tid'].isin(tid_last)) & (data_this['publish_time'] < datetime_last)].index)
+data_this = data_this.drop(data_this[data_this['reply_time'] < datetime_last].index)
+data_this = data_this.drop(data_this[(~data_this['tid'].isin(tid_last)) & (data_this['publish_time'] < datetime_inactive)].index)
 
 len_last_after = len(data_last)
 len_this_after = len(data_this)
@@ -377,6 +418,7 @@ with pd.ExcelWriter(r'temp/data_last.xlsx', engine='openpyxl') as writer:
 
 print("步骤三：计算数据 - 新增安科")
 # 本周新增安科
+
 new_threads = data_this[(datetime_last <= data_this['publish_time']) & (data_this['publish_time'] <= datetime_this)]
 new_threads.fillna(0)
 
@@ -418,6 +460,7 @@ data_this_act_new = data_this_act_new.loc[data_this_act_new['tid'].isin(act_new_
 pd.set_option('mode.chained_assignment',  None)
 data_this_act_new['isNew'] = 0
 data_this_act_new.loc[data_this_act_new['tid'].isin(new_list), 'isNew'] = 1
+data_this_act_new.loc[data_this_act_new['publish_time'] < datetime_last, 'isNew'] = 0
 pd.set_option('mode.chained_assignment',  'warn')
 
 print("步骤六：输出结果")
@@ -496,6 +539,10 @@ paper_file = open(f'paper_weekly-{datetime_this.strftime(file_time_format)}.txt'
 paper_file.write(output)
 paper_file.close()
 
+# 里程碑部分
+# 因为不需要活跃，所以使用原始数据
+data_this = data_this_all
+'''
 active_data = active_data.sort_values(ascending=False)
 
 # active_data += new_threads['level']
@@ -509,7 +556,7 @@ data_this = data_this.sort_values(by='incLevel',ascending=False)
 hot_thread = data_this.head(10)
 
 #print(data_to_bbcode(hot_thread,'incLevel'))
-
+'''
 
 #  & ((datetime_this- data_this['reply_time']) <= pd.Timedelta(days=30)) # 最后回复时间小于等于30天
 
@@ -613,6 +660,8 @@ for line in tag_lines:
         if tag in tag_dic_refine.keys():
             tag_dic_refine[tag_similar[0]]['count'] += tag_dic_refine[tag]['count']
             tag_dic_refine[tag_similar[0]]['thread'] += tag_dic_refine[tag]['thread']
+            # 去除多余的元素
+            tag_dic_refine[tag_similar[0]]['thread'] = [i for n, i in enumerate(tag_dic_refine[tag_similar[0]]['thread']) if i not in tag_dic_refine[tag_similar[0]]['thread'][n + 1:]]
             tag_dic_refine.pop(tag)
 
 # exportDic(tag_dic_refine, "tag_refine")
@@ -627,13 +676,13 @@ tag_output += f"""[align=center][size=150%][b]安科标签目录[/b][/size][/ali
 [quote]为了方便读者寻找自己感兴趣的题材的安科，将本周活跃与新增的安科按照导游的标题中的标签（Tag)进行分类整理。标签按照使用了该标签的数量降序排序，每个标签内的安科按照楼层降序排序。
 [collapse=说明]
 1、本目录是完全按照导游自己在标题中的标签标注来整理生成的。我们尝试通过人工列表来整合一部分同类标签（例如BA,碧蓝档案,蔚蓝档案,蔚藍檔案,碧藍檔案）并排除不相关标签，但必然仍有遗漏还请谅解。
-2、这里的标签指的是在标题中使用[]框起的部分。如果您的安科更好地提升在潜在受众中的曝光率，可以考虑打上合适的标签。
+2、这里的标签指的是在标题中使用[]框起的部分。如果您希望您的安科更好地提升在潜在受众中的曝光率，可以考虑打上合适的标签。
 3、同理，我们倡议导游们在标题中仅使用[]进行标签标注，其他非标签内容使用其他种类的括号，这将对标签目录的生成提供巨大的便利，在此感谢导游们的理解和合作。
-4、为了避免目录太长影响读者观感，目前仅收录至少在三个帖子中被使用的标签。这个数量限制今后可能再根据情况调整。
+4、为了避免目录太长影响读者观感，目前仅收录至少在{current_config_dic["min_thread_to_record_tag"]}个帖子中被使用的标签。这个数量限制今后可能再根据情况调整。
 [/collapse][/quote]\n"""
 hot_tag_count = 0
 for item in list_tag_dic:
-    if item['count'] <= 2:
+    if item['count'] < current_config_dic["min_thread_to_record_tag"]:
         continue
     '''
     if hot_tag_count == 10:
