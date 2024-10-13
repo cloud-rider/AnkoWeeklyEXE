@@ -131,7 +131,7 @@ def filter_arrive_x_level(last_source: pd.DataFrame, this_source: pd.DataFrame, 
 # 数据统计
 # 小于x层的安科数
 def num_lower_than_x(x: int):
-    return len(data_this[data_this['level'] < x])
+    return len(data_this_all[data_this_all['level'] < x])
 
 # 本周完结的安科
 def filter_finished_threads(last_source: pd.DataFrame, this_source: pd.DataFrame):
@@ -423,7 +423,7 @@ new_threads = data_this[(datetime_last <= data_this['publish_time']) & (data_thi
 new_threads.fillna(0)
 
 # 总数
-thread_sum = len(data_this)
+thread_sum = len(data_this_all)
 
 print("步骤四：计算数据 - 完结安科")
 finished_threads = filter_finished_threads(data_last, data_this).sort_values(by='level', ascending=True)
